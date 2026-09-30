@@ -3,3 +3,6 @@
 /lib
 /share
 
+# Local rewrite progress tracker (not shared)
+/PROGRESS.md
+
