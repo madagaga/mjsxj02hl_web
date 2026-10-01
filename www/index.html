@@ -671,13 +671,22 @@
         <div v-if="route==='system/firmware'" class="container">
             <div class="card" v-scope="SystemFirmware()" v-effect="load()">
                 <h1>Firmware upgrade</h1>
-                <p class="message success" v-if="message">{{ message }}</p>
-                <p class="message error" v-if="error">{{ error }}</p>
-                <div v-if="sdcardPresent">
-                    <input type="file" @change="upload($event.target.files[0])" :disabled="busy">
-                    <progress v-if="busy" :value="progress" max="1"></progress>
+                <div v-if="rebooting">
+                    <p class="message error">Do NOT power off the device. Erasing and writing the firmware takes
+                        a couple of minutes -- it will reboot on its own when done.</p>
+                    <p>Updating... reloading this page in {{ countdown }}s.</p>
                 </div>
-                <p class="message error" v-else>To update the firmware, you need a SD card!</p>
+                <div v-else>
+                    <p class="message error">The device reboots automatically to apply the update -- no need to
+                        hold the reset button (that still works as a fallback if this fails).</p>
+                    <p class="message success" v-if="message">{{ message }}</p>
+                    <p class="message error" v-if="error">{{ error }}</p>
+                    <div v-if="sdcardPresent">
+                        <input type="file" @change="upload($event.target.files[0])" :disabled="busy">
+                        <progress v-if="busy" :value="progress" max="1"></progress>
+                    </div>
+                    <p class="message error" v-else>To update the firmware, you need a SD card!</p>
+                </div>
             </div>
         </div>
     </div>

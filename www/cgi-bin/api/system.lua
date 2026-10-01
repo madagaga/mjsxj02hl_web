@@ -17,6 +17,12 @@ local AUTORUN_DEFAULT = "#!/bin/sh\n\n# Launching the watchdog\nwatchdog.sh &"
 local BACKUP_SIZE = 393216 -- 384 KiB
 local BOOTLOADER_SIZE = 262144 -- 256 KiB
 local FIRMWARE_SIZE = 12058688
+local FIRMWARE_UIMAGE_HEADER_SIZE = 64
+local FIRMWARE_UIMAGE = {
+    kind = 5,
+    name = "hlc6",
+    size = FIRMWARE_SIZE - FIRMWARE_UIMAGE_HEADER_SIZE, -- 0xB80000
+}
 
 local function reboot_response()
     if os.execute(paths.reboot) then
@@ -132,7 +138,48 @@ function M.post_bootloader_upgrade(req)
     reboot_response()
 end
 
--- firmware (staged on SD card, no auto-flash/reboot -- matches legacy) -------
+-- firmware -------------------------------------------------------------------
+--
+-- Writes the image to the SD card, then triggers U-Boot's SD-update path by
+-- setting bit0 of a trigger register that survives a software reboot (same
+-- effect as holding the physical reset button at boot). See paths.lua and
+-- PROGRESS.md for the full mechanism (reverse-engineered + tested on a real
+-- device by a peer session, 2026-10-01). U-Boot re-validates the image's own
+-- data CRC32 before erasing anything -- the checks here are an early refusal
+-- for obviously-wrong uploads, not the final safety net.
+
+-- Reads back a 32-bit register via devmem to confirm a write actually took.
+-- Returns the integer value, or nil + error.
+local function read_register(address)
+    local handle = io.popen(paths.devmem .. " " .. address .. " 32 2>&1")
+    if not handle then return nil, "Could not run devmem" end
+    local output = handle:read("*a") or ""
+    local ok = handle:close()
+    if not ok then return nil, "devmem read failed: " .. output end
+    local hex = output:match("0[xX](%x+)") or output:match("^%s*(%x+)%s*$")
+    local value = hex and tonumber(hex, 16)
+    if not value then return nil, "Unexpected devmem output: " .. output end
+    return value
+end
+
+-- Flushes pending writes, sets the trigger register to 1, and reads it back
+-- to make sure it actually stuck before we consider it safe to reboot.
+local function trigger_sd_update()
+    os.execute(paths.sync)
+    if not os.execute(paths.devmem .. " " .. paths.fw_trigger_register .. " 32 1") then
+        return false, "Error writing the U-Boot update-trigger register!"
+    end
+    local value, err = read_register(paths.fw_trigger_register)
+    if not value then
+        return false, "Could not verify the update-trigger register: " .. (err or "unknown error")
+            .. " -- aborting, device NOT rebooted."
+    end
+    if (value & 1) == 0 then
+        return false, "Update-trigger register did not take the expected value (read "
+            .. tostring(value) .. ") -- aborting, device NOT rebooted."
+    end
+    return true
+end
 
 function M.post_firmware(req)
     if not fnc.file.exists(paths.sdcard_device) then
@@ -146,9 +193,35 @@ function M.post_firmware(req)
         os.remove(paths.firmware_dest)
         return cgi.fail(200, "Invalid size of the firmware file!")
     end
-    -- Deliberately no flash/reboot here: same as legacy, the device's own
-    -- bootloader picks this up on the next manual reset-button boot.
-    cgi.ok({ staged = true })
+
+    local valid, header_err = fnc.uimage.validate(paths.firmware_dest, FIRMWARE_UIMAGE)
+    if not valid then
+        os.remove(paths.firmware_dest)
+        return cgi.fail(200, "Invalid firmware image: " .. (header_err or "header check failed") .. "!")
+    end
+
+    -- Guard against U-Boot reflashing the BOOTLOADER itself: it does that
+    -- instead of the normal kernel+rootfs+app+kback update if this file is
+    -- present on the SD card.
+    if fnc.file.exists(paths.sdcard_boot_trigger) then
+        os.remove(paths.firmware_dest)
+        return cgi.fail(200, "A " .. paths.sdcard_boot_trigger .. " file is present on the SD card -- refusing "
+            .. "to proceed, since U-Boot would reflash the bootloader instead of the normal firmware. "
+            .. "Remove that file first if this was intentional.")
+    end
+
+    local triggered, trigger_err = trigger_sd_update()
+    if not triggered then
+        os.remove(paths.firmware_dest)
+        return cgi.fail(200, trigger_err)
+    end
+
+    if os.execute(paths.reboot) then
+        cgi.ok({ rebooting = true })
+    else
+        cgi.fail(200, "Update staged and triggered, but the device could not be rebooted automatically -- "
+            .. "please reboot it manually to apply the firmware update.", { rebooting = false })
+    end
 end
 
 return M

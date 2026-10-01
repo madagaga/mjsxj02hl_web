@@ -329,6 +329,8 @@ const root = reactive({
         return {
             message: "", error: "", progress: 0, busy: false,
             sdcardPresent: true,
+            rebooting: false,
+            countdown: 0,
             async load() {
                 const res = await api.systemInfo();
                 if (res.ok) this.sdcardPresent = res.sdcard_present;
@@ -338,8 +340,18 @@ const root = reactive({
                 const res = await api.firmwareUpload(file, (p) => { this.progress = p; });
                 this.busy = false;
                 if (!res.ok) { this.error = res.error; return; }
-                this.message = "Firmware staged on the SD card. Turn off the device, hold the reset button, "
-                    + "wait for the white LED, and the device will reboot automatically into flashing mode.";
+                // The device erases and rewrites ~12 MB of flash before it
+                // comes back -- this genuinely takes a couple of minutes,
+                // unlike the other reboot-triggering pages.
+                this.rebooting = true;
+                this.countdown = 180;
+                const timer = setInterval(() => {
+                    this.countdown--;
+                    if (this.countdown <= 0) {
+                        clearInterval(timer);
+                        location.reload();
+                    }
+                }, 1000);
             },
         };
     },

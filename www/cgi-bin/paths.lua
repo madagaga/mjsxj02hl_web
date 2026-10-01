@@ -24,6 +24,7 @@ paths.passwd = "passwd"
 paths.flash_eraseall = "flash_eraseall"
 paths.flashcp = "flashcp"
 paths.sleep = "sleep"
+paths.devmem = "devmem"
 
 -- Config files
 paths.app_conf = "/configs/mjsxj02hl.conf" -- confirmed: NOT /usr/app/share/... (that's read-only squashfs)
@@ -47,5 +48,15 @@ paths.tmp_bootloader = "/tmp/bootloader.bin"
 
 -- SD card targets
 paths.firmware_dest = "/mnt/mmc/demo_hlc6.bin"
+-- If this file is present, U-Boot would reflash the BOOTLOADER itself on
+-- next boot instead of just kernel+rootfs+app+kback -- the firmware upload
+-- flow refuses to proceed if it exists. See PROGRESS.md (cross-session note,
+-- 2026-10-01) for the full U-Boot trigger mechanism this guards against.
+paths.sdcard_boot_trigger = "/mnt/mmc/demo_boot.bin"
+
+-- U-Boot SD-update trigger register (survives a software `reboot`, not a
+-- power cut). Writing 1 to bit0 tells U-Boot to look for demo_hlc6.bin on
+-- the SD card at next boot, same as holding the physical reset button.
+paths.fw_trigger_register = "0x120f0048"
 
 return paths
