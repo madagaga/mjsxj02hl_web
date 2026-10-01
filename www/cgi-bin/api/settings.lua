@@ -15,14 +15,14 @@
 local cgi = require "api.cgi"
 local fnc = require "functions"
 local lip = require "LIP"
+local paths = require "paths"
 
 local M = {}
 
-local TZ_FILE = "/configs/TZ"
 local TZ_DEFAULT = "UTC-3"
 
 local function read_timezone()
-    local content = fnc.file.get_contents(TZ_FILE)
+    local content = fnc.file.get_contents(paths.timezone_file)
     content = fnc.string.trim(content or "", "\n")
     if fnc.string.is_empty(content) then return TZ_DEFAULT end
     return content
@@ -66,7 +66,7 @@ function M.apply(req, username)
 
         -- timezone lives in its own file, not the INI, only relevant to "general"
         if section == "general" and section_data.timezone ~= nil then
-            local ok = fnc.file.put_contents(TZ_FILE, tostring(section_data.timezone) .. "\n")
+            local ok = fnc.file.put_contents(paths.timezone_file, tostring(section_data.timezone) .. "\n")
             if not ok then
                 return cgi.fail(500, "Error writing timezone file!")
             end

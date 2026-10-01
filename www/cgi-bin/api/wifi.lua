@@ -5,6 +5,7 @@
 
 local cgi = require "api.cgi"
 local fnc = require "functions"
+local paths = require "paths"
 
 local M = {}
 
@@ -47,7 +48,7 @@ function M.post_wifi(req)
         return cgi.fail(400, "Unknown action")
     end
 
-    if os.execute("reboot") then
+    if os.execute(paths.reboot) then
         cgi.ok({ rebooting = true })
     else
         cgi.fail(200, "To apply changes, you need reboot the device.", { rebooting = false })

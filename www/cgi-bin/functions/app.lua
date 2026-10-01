@@ -7,35 +7,37 @@ local functions = {
 }
 package.loaded[...] = functions.app
 
+local paths = require "paths"
+
 -- File of mjsxj02hl application settings
 functions.app.settings_file = function()
-    return "/usr/app/share/mjsxj02hl.conf"
+    return paths.app_conf
 end
 
 -- Path of wpa_supplicant.conf file
 functions.app.wpa_supplicant_file = function()
-    return "/etc/wpa_supplicant.conf"
+    return paths.wpa_supplicant_conf
 end
 
 -- Restart mjsxj02hl application
 functions.app.restart = function()
     -- Kill application
-    os.execute("killall mjsxj02hl")
+    os.execute(paths.killall .. " mjsxj02hl")
     -- Waiting for completion
-    while os.execute("killall -0 mjsxj02hl") do
+    while os.execute(paths.killall .. " -0 mjsxj02hl") do
         functions.app.sleep(1)
     end
     -- Run application
-    return os.execute("mjsxj02hl & sleep 0.1")
+    return os.execute(paths.mjsxj02hl .. " & " .. paths.sleep .. " 0.1")
 end
 
 -- Flashing the selected partition
 functions.app.flash_partition = function(filename, partition)
     if functions.string.is_string(filename) and functions.string.is_string(partition) then
         if functions.file.exists(filename) and functions.file.exists(partition) then
-            if os.execute("flash_eraseall " .. partition) then
-                if os.execute("sync") then
-                    if os.execute("flashcp -v " .. filename .. " " .. partition) then
+            if os.execute(paths.flash_eraseall .. " " .. partition) then
+                if os.execute(paths.sync) then
+                    if os.execute(paths.flashcp .. " -v " .. filename .. " " .. partition) then
                         return true
                     end
                 end
@@ -48,7 +50,7 @@ end
 -- Sleep N seconds
 functions.app.sleep = function(n)
     if functions.number.is_number(n) then
-        if os.execute("sleep " .. n) then
+        if os.execute(paths.sleep .. " " .. n) then
             return true
         end
     end

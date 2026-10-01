@@ -1,4 +1,4 @@
-#!/usr/app/bin/lua
+#!/backk/bin/lua
 
 -- Single CGI entry point for the JSON API. Replaces app.lua + CGILua/WSAPI.
 local script_dir = (arg and arg[0] or ""):match("^(.*)[/\\][^/\\]*$") or "."

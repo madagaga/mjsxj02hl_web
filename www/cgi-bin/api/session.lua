@@ -6,6 +6,7 @@
 local fnc = require "functions"
 local md5 = require "md5"
 local ldes = require "ldes"
+local paths = require "paths"
 
 local session = {}
 
@@ -23,8 +24,8 @@ end
 function session.check_password(username, password)
     if fnc.string.is_empty(username) then return false, "Please, enter your username!" end
     if fnc.string.is_empty(password) then return false, "Please, enter your password!" end
-    local file = io.open("/etc/passwd", "r")
-    if not file then return false, "Can't open file /etc/passwd!" end
+    local file = io.open(paths.passwd_file, "r")
+    if not file then return false, "Can't open file " .. paths.passwd_file .. "!" end
     for line in file:lines() do
         local parts = fnc.string.split(line, ":")
         if parts[1] == username then

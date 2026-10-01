@@ -9,21 +9,17 @@
 
 local cgi = require "api.cgi"
 local fnc = require "functions"
+local paths = require "paths"
 
 local M = {}
 
-local AUTORUN_FILE = "/configs/run.sh"
 local AUTORUN_DEFAULT = "#!/bin/sh\n\n# Launching the watchdog\nwatchdog.sh &"
-
-local BACKUP_TMP = "/tmp/configs_backup.bin"
 local BACKUP_SIZE = 393216 -- 384 KiB
-local BOOTLOADER_TMP = "/tmp/bootloader.bin"
 local BOOTLOADER_SIZE = 262144 -- 256 KiB
-local FIRMWARE_DEST = "/mnt/mmc/demo_hlc6.bin"
 local FIRMWARE_SIZE = 12058688
 
 local function reboot_response()
-    if os.execute("reboot") then
+    if os.execute(paths.reboot) then
         cgi.ok({ rebooting = true })
     else
         cgi.fail(200, "To apply changes, you need reboot the device.", { rebooting = false })
@@ -33,19 +29,19 @@ end
 -- GET /system/info --------------------------------------------------------
 
 function M.get_info(req)
-    local version = fnc.file.get_contents("/usr/app/share/.version")
+    local version = fnc.file.get_contents(paths.version_file)
     version = fnc.string.trim(version or "", "\n")
     if fnc.string.is_empty(version) then version = "Unknown" end
     cgi.ok({
         version = version,
-        sdcard_present = fnc.file.exists("/dev/mmcblk0"),
+        sdcard_present = fnc.file.exists(paths.sdcard_device),
     })
 end
 
 -- autorun -------------------------------------------------------------------
 
 function M.get_autorun(req)
-    local content = fnc.file.get_contents(AUTORUN_FILE)
+    local content = fnc.file.get_contents(paths.autorun_file)
     content = fnc.string.trim(content or "", "\n")
     if fnc.string.is_empty(content) then content = AUTORUN_DEFAULT end
     cgi.ok({ content = content })
@@ -61,7 +57,7 @@ function M.post_autorun(req)
     elseif body.action ~= "defaults" then
         return cgi.fail(400, "Unknown action")
     end
-    local ok, err = fnc.file.put_contents(AUTORUN_FILE, content .. "\n")
+    local ok, err = fnc.file.put_contents(paths.autorun_file, content .. "\n")
     if not ok then
         return cgi.fail(200, err or "Error saving autorun script!")
     end
@@ -77,7 +73,7 @@ end
 -- No reboot fallback on failure here: the factory-reset binary itself
 -- reboots the device on success, matching the legacy page exactly.
 function M.post_factory_reset(req)
-    if os.execute("mjsxj02hl --factory-reset") then
+    if os.execute(paths.mjsxj02hl .. " --factory-reset") then
         cgi.ok({ rebooting = true })
     else
         cgi.fail(200, "Factory reset error!")
@@ -87,23 +83,23 @@ end
 -- backup / restore (mtd6, "configs" partition) -------------------------------
 
 function M.post_backup(req)
-    if not os.execute("cat /dev/mtdblock6 > " .. BACKUP_TMP) then
+    if not os.execute(paths.cat .. " " .. paths.mtd_configs_block .. " > " .. paths.tmp_backup) then
         return cgi.fail(200, "Error creating a backup file!")
     end
-    cgi.ok({ size = BACKUP_SIZE, download_url = "/tmp/configs_backup.bin" })
+    cgi.ok({ size = BACKUP_SIZE, download_url = paths.tmp_backup })
 end
 
 function M.post_restore(req)
-    local upload, err = cgi.receive_single_file_upload(BACKUP_TMP, BACKUP_SIZE + 4096)
+    local upload, err = cgi.receive_single_file_upload(paths.tmp_backup, BACKUP_SIZE + 4096)
     if not upload then
         return cgi.fail(200, err or "No backup file selected!")
     end
     if upload.size ~= BACKUP_SIZE then
-        os.remove(BACKUP_TMP)
+        os.remove(paths.tmp_backup)
         return cgi.fail(200, "Invalid size of the backup file!")
     end
-    local flashed = fnc.app.flash_partition(BACKUP_TMP, "/dev/mtd6")
-    os.remove(BACKUP_TMP)
+    local flashed = fnc.app.flash_partition(paths.tmp_backup, paths.mtd_configs)
+    os.remove(paths.tmp_backup)
     if not flashed then
         return cgi.fail(200, "Error restoring a backup copy of the settings!")
     end
@@ -113,23 +109,23 @@ end
 -- bootloader (mtd0) -----------------------------------------------------------
 
 function M.post_bootloader_download(req)
-    if not os.execute("cat /dev/mtdblock0 > " .. BOOTLOADER_TMP) then
+    if not os.execute(paths.cat .. " " .. paths.mtd_bootloader_block .. " > " .. paths.tmp_bootloader) then
         return cgi.fail(200, "Error creating a bootloader file!")
     end
-    cgi.ok({ size = BOOTLOADER_SIZE, download_url = "/tmp/bootloader.bin" })
+    cgi.ok({ size = BOOTLOADER_SIZE, download_url = paths.tmp_bootloader })
 end
 
 function M.post_bootloader_upgrade(req)
-    local upload, err = cgi.receive_single_file_upload(BOOTLOADER_TMP, BOOTLOADER_SIZE + 4096)
+    local upload, err = cgi.receive_single_file_upload(paths.tmp_bootloader, BOOTLOADER_SIZE + 4096)
     if not upload then
         return cgi.fail(200, err or "No bootloader file selected!")
     end
     if upload.size ~= BOOTLOADER_SIZE then
-        os.remove(BOOTLOADER_TMP)
+        os.remove(paths.tmp_bootloader)
         return cgi.fail(200, "Invalid size of the bootloader file!")
     end
-    local flashed = fnc.app.flash_partition(BOOTLOADER_TMP, "/dev/mtd0")
-    os.remove(BOOTLOADER_TMP)
+    local flashed = fnc.app.flash_partition(paths.tmp_bootloader, paths.mtd_bootloader)
+    os.remove(paths.tmp_bootloader)
     if not flashed then
         return cgi.fail(200, "Bootloader update error!")
     end
@@ -139,15 +135,15 @@ end
 -- firmware (staged on SD card, no auto-flash/reboot -- matches legacy) -------
 
 function M.post_firmware(req)
-    if not fnc.file.exists("/dev/mmcblk0") then
+    if not fnc.file.exists(paths.sdcard_device) then
         return cgi.fail(200, "To update the firmware, you need a SD card!")
     end
-    local upload, err = cgi.receive_single_file_upload(FIRMWARE_DEST, FIRMWARE_SIZE + 65536)
+    local upload, err = cgi.receive_single_file_upload(paths.firmware_dest, FIRMWARE_SIZE + 65536)
     if not upload then
         return cgi.fail(200, err or "No firmware file selected!")
     end
     if upload.size ~= FIRMWARE_SIZE then
-        os.remove(FIRMWARE_DEST)
+        os.remove(paths.firmware_dest)
         return cgi.fail(200, "Invalid size of the firmware file!")
     end
     -- Deliberately no flash/reboot here: same as legacy, the device's own

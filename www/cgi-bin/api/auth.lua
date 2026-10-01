@@ -3,6 +3,7 @@
 local cgi = require "api.cgi"
 local session = require "api.session"
 local fnc = require "functions"
+local paths = require "paths"
 
 local M = {}
 
@@ -63,7 +64,7 @@ function M.post_profile(req, username)
     if not username:match("^[%w_%-]+$") then
         return cgi.fail(200, "Password change error!")
     end
-    local handle = io.popen("passwd -a des " .. username .. " >/dev/null 2>&1", "w")
+    local handle = io.popen(paths.passwd .. " -a des " .. username .. " >/dev/null 2>&1", "w")
     if not handle then
         return cgi.fail(200, "Password change error!")
     end
