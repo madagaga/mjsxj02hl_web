@@ -4,4 +4,5 @@ return {
     string = require "functions.string",
     table = require "functions.table",
     number = require "functions.number",
+    uimage = require "functions.uimage",
 }

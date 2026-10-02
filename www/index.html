@@ -1,9 +1,697 @@
 <!doctype html>
-<html>
-    <head>
-        <meta http-equiv="refresh" content="0;/cgi-bin/app.lua">
-        <script type="text/javascript">
-            window.location.replace("/cgi-bin/app.lua");
-        </script>
-    </head>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MJSXJ02HL</title>
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app" v-scope>
+
+    <!-- Login -->
+    <div v-if="!booting && !authenticated" class="container">
+        <div class="card" v-scope="Login()">
+            <h1>Sign in</h1>
+            <p class="message error" v-if="error">{{ error }}</p>
+            <form @submit.prevent="submit">
+                <div class="field">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" v-model="username" autocomplete="username">
+                </div>
+                <div class="field">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" v-model="password" autocomplete="current-password">
+                </div>
+                <div class="actions">
+                    <button type="submit" :disabled="busy">Sign in</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Authenticated app -->
+    <div v-if="!booting && authenticated">
+        <nav class="navbar">
+            <a class="brand" href="#/home" @click.prevent="navigate('home')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                <span class="label">MJSXJ02HL</span>
+            </a>
+            <div class="nav-links">
+                <a :class="{active: route==='home'}" href="#/home" @click.prevent="navigate('home')">Home</a>
+                <details class="dropdown">
+                    <summary :class="{active: route.startsWith('settings/')}">Settings</summary>
+                    <ul>
+                        <li v-for="s in settingsSections" :key="s">
+                            <a href="#" :class="{active: route==='settings/'+s}" @click.prevent="navigate('settings/'+s)">{{ sectionTitles[s] }}</a>
+                        </li>
+                    </ul>
+                </details>
+                <details class="dropdown">
+                    <summary :class="{active: route.startsWith('system/')}">System</summary>
+                    <ul>
+                        <li><a href="#" @click.prevent="navigate('system/autorun')">Autorun</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/backup')">Backup and Restore</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/bootloader')">Bootloader</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/firmware')">Firmware upgrade</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/factory_reset')">Factory reset</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/reboot')">Reboot</a></li>
+                    </ul>
+                </details>
+                <a :class="{active: route==='wifi'}" href="#/wifi" @click.prevent="navigate('wifi')">Wi-Fi</a>
+            </div>
+            <div class="nav-right">
+                <a href="#/profile" @click.prevent="navigate('profile')">{{ username }}</a>
+                <button class="secondary" @click="logout()">Logout</button>
+            </div>
+        </nav>
+
+        <!-- OpenWrt-style pending-changes bar: shown whenever any settings
+             section has been staged (Save) but not yet Applied. -->
+        <div class="pending-bar" v-if="pendingSections.length">
+            <span>{{ pendingSections.length }} section{{ pendingSections.length > 1 ? 's' : '' }} with unsaved changes: {{ pendingSections.map(s => sectionTitles[s]).join(', ') }}</span>
+            <div class="pending-bar-actions">
+                <button class="secondary" @click="discardAll()" :disabled="applying">Discard all</button>
+                <button @click="applyAll()" :disabled="applying">{{ applying ? 'Applying…' : 'Save & Apply' }}</button>
+            </div>
+        </div>
+        <div class="container" v-if="applyMessage || applyError">
+            <p class="message success" v-if="applyMessage">{{ applyMessage }}</p>
+            <p class="message error" v-if="applyError">{{ applyError }}</p>
+        </div>
+
+        <!-- Home / live snapshot -->
+        <div v-if="route==='home'" class="container">
+            <div class="card image-viewer" v-scope="Home()">
+                <h1>Live snapshot</h1>
+                <img :src="src" alt="Camera snapshot">
+                <div class="actions">
+                    <button @click="toggle()">{{ refreshing ? 'Stop refresh' : 'Start refresh' }}</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generic settings sections -->
+        <div v-if="route==='settings/general'" class="container">
+            <div class="card" v-scope="SettingsPage('general')" v-effect="load()">
+                <h1>{{ sectionTitles.general }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'general-'+field.key" v-model="values[field.key]">
+                        <label :for="'general-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'general-'+field.key">{{ field.label }}</label>
+                        <select :id="'general-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'general-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'general-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'general-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'general-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/osd'" class="container">
+            <div class="card" v-scope="SettingsPage('osd')" v-effect="load()">
+                <h1>{{ sectionTitles.osd }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'osd-'+field.key" v-model="values[field.key]">
+                        <label :for="'osd-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'osd-'+field.key">{{ field.label }}</label>
+                        <select :id="'osd-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'osd-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'osd-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'osd-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'osd-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/video'" class="container">
+            <div class="card" v-scope="SettingsPage('video')" v-effect="load()">
+                <h1>{{ sectionTitles.video }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'video-'+field.key" v-model="values[field.key]">
+                        <label :for="'video-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'video-'+field.key">{{ field.label }}</label>
+                        <select :id="'video-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'video-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'video-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'video-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'video-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/audio'" class="container">
+            <div class="card" v-scope="SettingsPage('audio')" v-effect="load()">
+                <h1>{{ sectionTitles.audio }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'audio-'+field.key" v-model="values[field.key]">
+                        <label :for="'audio-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'audio-'+field.key">{{ field.label }}</label>
+                        <select :id="'audio-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'audio-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'audio-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'audio-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'audio-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/speaker'" class="container">
+            <div class="card" v-scope="SettingsPage('speaker')" v-effect="load()">
+                <h1>{{ sectionTitles.speaker }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'speaker-'+field.key" v-model="values[field.key]">
+                        <label :for="'speaker-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'speaker-'+field.key">{{ field.label }}</label>
+                        <select :id="'speaker-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'speaker-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'speaker-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'speaker-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'speaker-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/alarm'" class="container">
+            <div class="card" v-scope="SettingsPage('alarm')" v-effect="load()">
+                <h1>{{ sectionTitles.alarm }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'alarm-'+field.key" v-model="values[field.key]">
+                        <label :for="'alarm-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'alarm-'+field.key">{{ field.label }}</label>
+                        <select :id="'alarm-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'alarm-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'alarm-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'alarm-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'alarm-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/rtsp'" class="container">
+            <div class="card" v-scope="SettingsPage('rtsp')" v-effect="load()">
+                <h1>{{ sectionTitles.rtsp }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'rtsp-'+field.key" v-model="values[field.key]">
+                        <label :for="'rtsp-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'rtsp-'+field.key">{{ field.label }}</label>
+                        <select :id="'rtsp-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'rtsp-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'rtsp-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'rtsp-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'rtsp-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/mqtt'" class="container">
+            <div class="card" v-scope="SettingsPage('mqtt')" v-effect="load()">
+                <h1>{{ sectionTitles.mqtt }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'mqtt-'+field.key" v-model="values[field.key]">
+                        <label :for="'mqtt-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'mqtt-'+field.key">{{ field.label }}</label>
+                        <select :id="'mqtt-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'mqtt-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'mqtt-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'mqtt-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'mqtt-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/night'" class="container">
+            <div class="card" v-scope="SettingsPage('night')" v-effect="load()">
+                <h1>{{ sectionTitles.night }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'night-'+field.key" v-model="values[field.key]">
+                        <label :for="'night-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'night-'+field.key">{{ field.label }}</label>
+                        <select :id="'night-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'night-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'night-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'night-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'night-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/logger'" class="container">
+            <div class="card" v-scope="SettingsPage('logger')" v-effect="load()">
+                <h1>{{ sectionTitles.logger }} settings</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'logger-'+field.key" v-model="values[field.key]">
+                        <label :for="'logger-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'logger-'+field.key">{{ field.label }}</label>
+                        <select :id="'logger-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'logger-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'logger-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'logger-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'logger-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="route==='settings/paths'" class="container">
+            <div class="card" v-scope="SettingsPage('paths')" v-effect="load()">
+                <h1>{{ sectionTitles.paths }} settings</h1>
+                <p class="message error">Advanced: only change these if you know what you're doing (custom ISP tuning / IVP model files).</p>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field" v-for="field in fields" :key="field.key">
+                    <div class="checkbox" v-if="field.type==='bool'">
+                        <input type="checkbox" :id="'paths-'+field.key" v-model="values[field.key]">
+                        <label :for="'paths-'+field.key">{{ field.label }}</label>
+                    </div>
+                    <div v-else-if="field.type==='select'">
+                        <label :for="'paths-'+field.key">{{ field.label }}</label>
+                        <select :id="'paths-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
+                    <div v-else-if="field.type==='range'" class="range-field">
+                        <label :for="'paths-'+field.key">{{ field.label }}</label>
+                        <div class="range-row">
+                            <span class="range-end">{{ field.endLabels[0] }}</span>
+                            <input type="range" :id="'paths-'+field.key" :min="field.min" :max="field.max" v-model="values[field.key]">
+                            <span class="range-end">{{ field.endLabels[1] }}</span>
+                            <span class="range-value">{{ values[field.key] }}</span>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <label :for="'paths-'+field.key">{{ field.label }}</label>
+                        <input :type="field.type==='password' ? 'password' : (field.type==='int' ? 'number' : 'text')"
+                               :id="'paths-'+field.key" v-model="values[field.key]">
+                    </div>
+                </div>
+                <p class="message pending" v-if="pending[section]">This section has staged, unapplied changes.</p>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                    <button class="secondary" @click="discard()" v-if="pending[section]">Discard</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile -->
+        <div v-if="route==='profile'" class="container">
+            <div class="card" v-scope="Profile()">
+                <h1>User profile</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field">
+                    <label>Username</label>
+                    <input type="text" :value="username" disabled>
+                </div>
+                <div class="field">
+                    <label for="current-passwd">Current password</label>
+                    <input type="password" id="current-passwd" v-model="current_passwd">
+                </div>
+                <div class="field">
+                    <label for="new-passwd">New password</label>
+                    <input type="password" id="new-passwd" v-model="new_passwd">
+                </div>
+                <div class="field">
+                    <label for="confirm-passwd">Confirm new password</label>
+                    <input type="password" id="confirm-passwd" v-model="confirm_passwd">
+                </div>
+                <div class="actions">
+                    <button @click="save()" :disabled="busy">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wi-Fi -->
+        <div v-if="route==='wifi'" class="container">
+            <div class="card" v-scope="Wifi()" v-effect="load()">
+                <h1>Wi-Fi</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div v-if="!rebooting">
+                    <div class="field" v-for="field in fields" :key="field.key">
+                        <label :for="'wifi-'+field.key">{{ field.label }}</label>
+                        <select v-if="field.type==='select'" :id="'wifi-'+field.key" v-model="values[field.key]">
+                            <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                        <input v-else :type="field.type==='password' ? 'password' : 'text'" :id="'wifi-'+field.key" v-model="values[field.key]">
+                    </div>
+                    <div class="actions">
+                        <button @click="save()">Save</button>
+                        <button class="secondary" @click="resetToDefaults()">Defaults (AP mode)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System: autorun -->
+        <div v-if="route==='system/autorun'" class="container">
+            <div class="card" v-scope="SystemAutorun()" v-effect="load()">
+                <h1>Autorun script</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <div class="field">
+                    <textarea v-model="content"></textarea>
+                </div>
+                <div class="actions">
+                    <button @click="save()">Save</button>
+                    <button class="secondary" @click="resetToDefaults()">Defaults</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- System: reboot / factory reset (shared confirm-dialog shape) -->
+        <div v-if="route==='system/reboot'" class="container">
+            <div class="card" v-scope="SystemReboot()">
+                <div v-if="rebooting"><p>The device is being rebooted...</p></div>
+                <div v-else-if="confirming">
+                    <p class="message error" v-if="error">{{ error }}</p>
+                    <button @click="proceed()">Confirm reboot</button>
+                    <button class="secondary" @click="cancel()">Cancel</button>
+                </div>
+                <div v-else>
+                    <h1>{{ prompt }}</h1>
+                    <div class="actions">
+                        <button class="danger" @click="confirm()">Yes</button>
+                        <button class="secondary" @click="cancel()">No</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div v-if="route==='system/factory_reset'" class="container">
+            <div class="card" v-scope="SystemFactoryReset()">
+                <div v-if="rebooting"><p>Factory reset is successful! The device is being rebooted...</p></div>
+                <div v-else-if="confirming">
+                    <p class="message error" v-if="error">{{ error }}</p>
+                    <button class="danger" @click="proceed()">Confirm factory reset</button>
+                    <button class="secondary" @click="cancel()">Cancel</button>
+                </div>
+                <div v-else>
+                    <h1>{{ prompt }}</h1>
+                    <div class="actions">
+                        <button class="danger" @click="confirm()">Yes</button>
+                        <button class="secondary" @click="cancel()">No</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System: backup/restore -->
+        <div v-if="route==='system/backup'" class="container">
+            <div class="card" v-scope="SystemBackup()">
+                <h1>Backup and Restore</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <h2>Create backup</h2>
+                <button @click="create()">Create backup</button>
+                <a v-if="downloadUrl" :href="downloadUrl" download>Download backup file</a>
+                <h2>Restore backup</h2>
+                <input type="file" @change="restore($event.target.files[0])" :disabled="busy">
+                <progress v-if="busy" :value="progress" max="1"></progress>
+            </div>
+        </div>
+
+        <!-- System: bootloader -->
+        <div v-if="route==='system/bootloader'" class="container">
+            <div class="card" v-scope="SystemBootloader()">
+                <h1>Bootloader</h1>
+                <p class="message error">Warning: this can ruin your device!</p>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <h2>Download bootloader</h2>
+                <button @click="download()">Download bootloader</button>
+                <a v-if="downloadUrl" :href="downloadUrl" download>Download bootloader file</a>
+                <h2>Upgrade bootloader</h2>
+                <input type="file" @change="upgrade($event.target.files[0])" :disabled="busy">
+                <progress v-if="busy" :value="progress" max="1"></progress>
+            </div>
+        </div>
+
+        <!-- System: firmware upgrade -->
+        <div v-if="route==='system/firmware'" class="container">
+            <div class="card" v-scope="SystemFirmware()" v-effect="load()">
+                <h1>Firmware upgrade</h1>
+                <div v-if="rebooting">
+                    <p class="message error">Do NOT power off the device. Erasing and writing the firmware takes
+                        a couple of minutes -- it will reboot on its own when done.</p>
+                    <p>Updating... reloading this page in {{ countdown }}s.</p>
+                </div>
+                <div v-else>
+                    <p class="message error">The device reboots automatically to apply the update -- no need to
+                        hold the reset button (that still works as a fallback if this fails).</p>
+                    <p class="message success" v-if="message">{{ message }}</p>
+                    <p class="message error" v-if="error">{{ error }}</p>
+                    <div v-if="sdcardPresent">
+                        <input type="file" @change="upload($event.target.files[0])" :disabled="busy">
+                        <progress v-if="busy" :value="progress" max="1"></progress>
+                    </div>
+                    <p class="message error" v-else>To update the firmware, you need a SD card!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
 </html>
