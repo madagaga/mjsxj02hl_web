@@ -5,7 +5,7 @@ CC = $(CROSS_COMPILE)gcc
 AR = $(CROSS_COMPILE)ar rcu
 RANLIB = $(CROSS_COMPILE)ranlib
 
-LUAVER = 5.4
+LUAVER = 5.5
 
 TMPDIR = temp
 BINDIR = bin
@@ -29,7 +29,7 @@ all: mkdirs web gzip
 web: lua lip luades md5
 
 lua:
-	git clone "https://github.com/lua/lua/" "$(TMPDIR)/lua" --branch "v5.4.6"
+	git clone "https://github.com/lua/lua/" "$(TMPDIR)/lua" --branch "v5.5.0"
 	make -C "$(TMPDIR)/lua" CC="$(CC)" AR="$(AR)" RANLIB="$(RANLIB)" CFLAGS="-Wall -O2 -std=c99 -DLUA_USE_LINUX -fno-stack-protector -fno-common $(CCFLAGS)" MYLIBS="-ldl"
 	cp -f $(TMPDIR)/lua/lua $(BINDIR)/
 
