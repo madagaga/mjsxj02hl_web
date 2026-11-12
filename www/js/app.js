@@ -332,12 +332,24 @@ const root = reactive({
             version: "",
             rebooting: false,
             countdown: 0,
+            file: null,
             async load() {
                 const res = await api.systemInfo();
                 if (res.ok) {
                     this.sdcardPresent = res.sdcard_present;
                     this.version = res.version;
                 }
+            },
+            // Picking a file only selects it; nothing is uploaded or flashed
+            // until the user presses the "Flash" button.
+            select(file) {
+                this.file = file || null;
+                this.error = ""; this.message = "";
+            },
+            async flash() {
+                if (!this.file || this.busy) return;
+                if (!confirm("Flash " + this.file.name + "? The device will reboot and must not be powered off.")) return;
+                await this.upload(this.file);
             },
             async upload(file) {
                 this.busy = true; this.error = ""; this.message = "";

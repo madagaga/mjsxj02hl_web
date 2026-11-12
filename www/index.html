@@ -683,7 +683,11 @@
                     <p class="message success" v-if="message">{{ message }}</p>
                     <p class="message error" v-if="error">{{ error }}</p>
                     <div v-if="sdcardPresent">
-                        <input type="file" @change="upload($event.target.files[0])" :disabled="busy">
+                        <input type="file" @change="select($event.target.files[0])" :disabled="busy">
+                        <p v-if="file">Selected: <strong>{{ file.name }}</strong> ({{ (file.size / 1048576).toFixed(1) }} MB)</p>
+                        <div class="actions">
+                            <button class="danger" @click="flash()" :disabled="busy || !file">Flash</button>
+                        </div>
                         <progress v-if="busy" :value="progress" max="1"></progress>
                     </div>
                     <p class="message error" v-else>To update the firmware, you need a SD card!</p>
