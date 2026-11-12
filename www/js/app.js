@@ -329,11 +329,15 @@ const root = reactive({
         return {
             message: "", error: "", progress: 0, busy: false,
             sdcardPresent: true,
+            version: "",
             rebooting: false,
             countdown: 0,
             async load() {
                 const res = await api.systemInfo();
-                if (res.ok) this.sdcardPresent = res.sdcard_present;
+                if (res.ok) {
+                    this.sdcardPresent = res.sdcard_present;
+                    this.version = res.version;
+                }
             },
             async upload(file) {
                 this.busy = true; this.error = ""; this.message = "";

@@ -671,6 +671,7 @@
         <div v-if="route==='system/firmware'" class="container">
             <div class="card" v-scope="SystemFirmware()" v-effect="load()">
                 <h1>Firmware upgrade</h1>
+                <p v-if="version">Current version: <strong>{{ version }}</strong></p>
                 <div v-if="rebooting">
                     <p class="message error">Do NOT power off the device. Erasing and writing the firmware takes
                         a couple of minutes -- it will reboot on its own when done.</p>
