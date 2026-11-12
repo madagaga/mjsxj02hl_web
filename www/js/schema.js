@@ -109,9 +109,11 @@ export const SETTINGS_SCHEMA = {
         { key: "primary_type", label: "Primary: video compression standard", type: "select", default: 1, options: CODEC_OPTIONS },
         { key: "primary_bitrate", label: "Primary: bitrate (kbps)", type: "int", default: 1800, min: 2, max: 61480 },
         { key: "primary_rcmode", label: "Primary: rate control mode", type: "select", default: 2, options: RCMODE_OPTIONS },
+        { key: "primary_qp", label: "Primary: quantizer, constant quality only (0-51, lower = better)", type: "int", default: 23, min: 0, max: 51 },
         { key: "secondary_type", label: "Secondary: video compression standard", type: "select", default: 1, options: CODEC_OPTIONS },
         { key: "secondary_bitrate", label: "Secondary: bitrate (kbps)", type: "int", default: 900, min: 2, max: 61480 },
         { key: "secondary_rcmode", label: "Secondary: rate control mode", type: "select", default: 2, options: RCMODE_OPTIONS },
+        { key: "secondary_qp", label: "Secondary: quantizer, constant quality only (0-51, lower = better)", type: "int", default: 23, min: 0, max: 51 },
     ],
     audio: [
         { key: "volume", label: "Volume", type: "int", default: 70, min: 0, max: 100 },
