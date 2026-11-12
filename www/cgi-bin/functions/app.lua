@@ -27,8 +27,10 @@ functions.app.restart = function()
     while os.execute(paths.killall .. " -0 mjsxj02hl") do
         functions.app.sleep(1)
     end
-    -- Run application
-    return os.execute(paths.mjsxj02hl .. " & " .. paths.sleep .. " 0.1")
+    -- Run application. Detach its stdio from the CGI: a child that keeps the
+    -- CGI's stdout open stops busybox httpd from ever ending the response
+    -- (it waits for EOF), so the browser would hang on the apply request.
+    return os.execute(paths.mjsxj02hl .. " >/dev/null 2>&1 </dev/null & " .. paths.sleep .. " 0.1")
 end
 
 -- Flashing the selected partition
