@@ -266,6 +266,60 @@ const root = reactive({
         };
     },
 
+    // --- system: services (ftp / telnet / ssh) ---
+    SystemServices() {
+        const NOTES = {
+            ftp: "Not encrypted: the password travels in clear text. The project tools use FTP to deploy files.",
+            telnet: "Not encrypted: the password and the session travel in clear text.",
+            ssh: "Encrypted (Dropbear). Log in as root with the device password, or with a key in /configs/dropbear/authorized_keys. File copy: scp -O file root@<ip>:/path (-O is needed with OpenSSH 9 or newer; sftp is not available).",
+        };
+        return {
+            services: [],
+            loading: false,
+            busy: "",
+            message: "",
+            error: "",
+            note(name) { return NOTES[name] || ""; },
+            apply(res) {
+                if (res.services) this.services = res.services;
+            },
+            async load() {
+                this.loading = true;
+                this.error = "";
+                const res = await api.servicesGet();
+                this.loading = false;
+                if (!res.ok) { this.error = res.error; return; }
+                this.apply(res);
+            },
+            // Would turning `svc` off leave no remote shell (telnet or ssh)?
+            isLastShell(svc) {
+                if (svc.name !== "telnet" && svc.name !== "ssh") return false;
+                return !this.services.some((s) => s.name !== svc.name && (s.name === "telnet" || s.name === "ssh") && s.enabled && s.available);
+            },
+            async toggle(svc) {
+                if (this.busy) return;
+                const enable = !svc.enabled;
+                let force = false;
+                if (!enable) {
+                    if (this.isLastShell(svc) && !confirm("Disabling " + svc.label + " removes the last remote shell access (Telnet / SSH). The web interface stays available. Continue?")) return;
+                    if (this.isLastShell(svc)) force = true;
+                    if (svc.name === "ftp" && !confirm("Disable FTP? Tools that deploy files by FTP will stop working.")) return;
+                }
+                this.busy = svc.name;
+                this.message = "";
+                this.error = "";
+                const res = await api.servicesSet(svc.name, enable, force);
+                this.busy = "";
+                this.apply(res);
+                if (!res.ok) {
+                    this.error = res.error || "Error!";
+                    if (!res.services) await this.load();
+                    return;
+                }
+                this.message = svc.label + (enable ? " enabled and started." : " disabled and stopped.");
+            },
+        };
+    },
     // --- system: reboot / factory reset (same confirm-dialog shape) ---
     ConfirmAction(actionFn, prompt) {
         return {

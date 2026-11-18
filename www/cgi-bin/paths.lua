@@ -24,6 +24,9 @@ paths.passwd = "passwd"
 paths.flash_eraseall = "flash_eraseall"
 paths.flashcp = "flashcp"
 paths.sleep = "sleep"
+-- Remote access services (ftp/telnet/ssh), see firmware repo. SERVICES_SH lets a
+-- development host point at a stand-in script.
+paths.services = os.getenv("SERVICES_SH") or "/backk/bin/services.sh"
 paths.devmem = "devmem"
 
 -- Config files

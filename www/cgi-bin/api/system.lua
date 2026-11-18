@@ -1,5 +1,5 @@
 -- Routes: GET /system/info, GET/POST /system/autorun, POST /system/reboot,
--- POST /system/factory_reset, POST /system/backup, POST /system/restore,
+-- GET/POST /system/services, POST /system/factory_reset, POST /system/backup, POST /system/restore,
 -- POST /system/bootloader/download, POST /system/bootloader/upgrade,
 -- POST /system/firmware
 --
@@ -70,6 +70,99 @@ function M.post_autorun(req)
     cgi.ok({ content = content })
 end
 
+-- services (ftp / telnet / ssh) ------------------------------------------------
+--
+-- Thin wrapper around the firmware's services.sh (see mjsxj02hl_firmware).
+-- Only constants from the whitelists below are ever placed in a command line.
+
+local SERVICES = {
+    { name = "ftp", label = "FTP" },
+    { name = "telnet", label = "Telnet" },
+    { name = "ssh", label = "SSH + SCP" },
+}
+local SERVICE_NAMES = { ftp = true, telnet = true, ssh = true }
+
+-- Runs services.sh with already-validated arguments. Returns ok, output, exit code.
+local function run_services(args)
+    local handle = io.popen(paths.services .. " " .. args .. " 2>&1")
+    if not handle then return false, "Could not run " .. paths.services, nil end
+    local output = handle:read("*a") or ""
+    local ok, _, code = handle:close()
+    return ok and true or false, output, code
+end
+
+local function last_message(output)
+    local line
+    for l in output:gmatch("[^\r\n]+") do line = l end
+    line = (line or ""):gsub("^services:%s*", "")
+    return line
+end
+
+-- Returns the list of services (fixed order) or nil + error message.
+local function read_services()
+    local ok, output = run_services("status")
+    if not ok then
+        return nil, "Could not read services status: " .. last_message(output)
+    end
+    local found = {}
+    for line in output:gmatch("[^\r\n]+") do
+        local name, enabled, running, available =
+            line:match("^(%a+) enabled=([01]) running=([01]) available=([01])$")
+        if name and SERVICE_NAMES[name] then
+            found[name] = { enabled = enabled == "1", running = running == "1", available = available == "1" }
+        end
+    end
+    local list = {}
+    for _, svc in ipairs(SERVICES) do
+        local st = found[svc.name]
+        if st then
+            list[#list + 1] = {
+                name = svc.name, label = svc.label,
+                enabled = st.enabled, running = st.running, available = st.available,
+            }
+        end
+    end
+    if #list == 0 then
+        return nil, "Unexpected output from services.sh"
+    end
+    return list
+end
+
+function M.get_services(req)
+    local list, err = read_services()
+    if not list then return cgi.fail(200, err) end
+    cgi.ok({ services = list })
+end
+
+-- Body: { name = "ftp"|"telnet"|"ssh", enabled = true|false, force = true? }
+-- "set" saves the choice for the next boots AND starts/stops the service now.
+-- services.sh refuses to remove the last remote shell access unless forced.
+function M.post_services(req)
+    local body = req.json
+    if type(body) ~= "table" then return cgi.fail(400, "Invalid request") end
+    if type(body.name) ~= "string" or not SERVICE_NAMES[body.name] then
+        return cgi.fail(400, "Unknown service")
+    end
+    if type(body.enabled) ~= "boolean" then
+        return cgi.fail(400, "Invalid value: enabled must be true or false")
+    end
+    if body.force ~= nil and type(body.force) ~= "boolean" then
+        return cgi.fail(400, "Invalid value: force must be true or false")
+    end
+
+    local args = "set " .. body.name .. " " .. (body.enabled and "1" or "0")
+    if body.force == true then args = args .. " --force" end
+    local ok, output, code = run_services(args)
+
+    local list = read_services() -- real state, whatever happened
+    if not ok then
+        local extra = { refused = (code == 2) }
+        if list then extra.services = list end
+        return cgi.fail(200, last_message(output) ~= "" and last_message(output) or "Service change failed", extra)
+    end
+    if not list then return cgi.fail(200, "Service changed, but its state could not be read back") end
+    cgi.ok({ services = list })
+end
 -- reboot / factory reset -----------------------------------------------------
 
 function M.post_reboot(req)

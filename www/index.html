@@ -52,6 +52,7 @@
                     <summary :class="{active: route.startsWith('system/')}">System</summary>
                     <ul>
                         <li><a href="#" @click.prevent="navigate('system/autorun')">Autorun</a></li>
+                        <li><a href="#" @click.prevent="navigate('system/services')">Services</a></li>
                         <li><a href="#" @click.prevent="navigate('system/backup')">Backup and Restore</a></li>
                         <li><a href="#" @click.prevent="navigate('system/bootloader')">Bootloader</a></li>
                         <li><a href="#" @click.prevent="navigate('system/firmware')">Firmware upgrade</a></li>
@@ -584,6 +585,28 @@
             </div>
         </div>
 
+        <!-- System: services -->
+        <div v-if="route==='system/services'" class="container">
+            <div class="card" v-scope="SystemServices()" v-effect="load()">
+                <h1>Services</h1>
+                <p class="message success" v-if="message">{{ message }}</p>
+                <p class="message error" v-if="error">{{ error }}</p>
+                <p v-if="loading && !services.length">Loading...</p>
+                <div class="service" v-for="svc in services" :key="svc.name">
+                    <div class="checkbox">
+                        <input type="checkbox" :id="'svc-'+svc.name" :checked="svc.enabled" :disabled="!svc.available || busy !== ''" @change="toggle(svc)">
+                        <label :for="'svc-'+svc.name">{{ svc.label }}</label>
+                        <span class="service-state" :class="svc.running ? 'on' : 'off'">{{ svc.running ? 'running' : 'stopped' }}</span>
+                    </div>
+                    <p class="service-note" v-if="!svc.available">Not available in this firmware.</p>
+                    <p class="service-note" v-else>{{ note(svc.name) }}</p>
+                </div>
+                <p class="service-note">Enabled: starts at boot and now. Disabled: stops now and no longer starts at boot. Open sessions are kept.</p>
+                <div class="actions">
+                    <button class="secondary" @click="load()" :disabled="busy !== ''">Refresh</button>
+                </div>
+            </div>
+        </div>
         <!-- System: autorun -->
         <div v-if="route==='system/autorun'" class="container">
             <div class="card" v-scope="SystemAutorun()" v-effect="load()">

@@ -400,3 +400,10 @@ progress {
     accent-color: var(--primary);
     background: var(--surface-alt);
 }
+
+/* Services page */
+.service { margin-bottom: 1rem; }
+.service-state { margin-left: 0.6rem; padding: 0 0.5rem; border-radius: 0.8rem; font-size: 0.8rem; }
+.service-state.on { background: var(--success-tint); color: var(--success); }
+.service-state.off { background: var(--danger-tint); color: var(--danger); }
+.service-note { font-size: 0.85rem; opacity: 0.8; margin: 0.2rem 0 0 1.6rem; }
